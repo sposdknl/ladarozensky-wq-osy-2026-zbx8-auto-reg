@@ -1,5 +1,7 @@
 # OSY 2026 – Zabbix 8.0 LTS auto-registrace agenta (Debian 13)
 
+![Ilustrace monitoringu](Images/ilustrace-1.jpg)
+
 Vagrant vytvoří VM s Debianem 13, nainstaluje **Zabbix Agent 2 8.0 LTS** z oficiálního repozitáře Zabbix
 a nastaví ho tak, aby se sám zaregistroval na server `enceladus.pfsense.cz` (aktivní auto-registrace, `HostMetadata=SPOS`).
 Vše proběhne automaticky při `vagrant up`, uvnitř VM se nic neinstaluje ručně.
@@ -20,6 +22,7 @@ Vše proběhne automaticky při `vagrant up`, uvnitř VM se nic neinstaluje ruč
 | `configure-zabbix8-agent2.sh` | vytvoří trvalý unikátní `Hostname`, nastaví `Server`, `ServerActive`, `HostMetadata`, `Timeout`, spustí službu |
 | `.gitattributes` | vynutí unixové konce řádků (LF) u skriptů, jinak by bash ve VM spadl na `\r` |
 | `.gitignore` | nenahrává složku `.vagrant/` se stavem VM |
+| `Images/` | screenshoty ze Zabbixu a ilustrace |
 
 ## Spuštění
 
@@ -39,17 +42,29 @@ vagrant up
    skript ho jen přečte. Díky tomu na serveru nevzniká duplicitní host.
 3. **Konfigurace:** z `/etc/zabbix/zabbix_agent2.conf` se smažou staré řádky `Server`, `ServerActive`, `Hostname`,
    `HostMetadata` a `Timeout` a připíšou se nové. Díky tomu se hodnoty při opakovaném běhu nezdvojují.
-4. **Auto-registrace:** VM je za NAT, server se k ní nedostane, proto se používají aktivní kontroly.
+4. **Auto-registrace:** VM je za NAT, server se k ní sám nepřipojí, proto se používají aktivní kontroly.
    Agent se sám připojí na `enceladus.pfsense.cz:10051` a pošle svůj `Hostname` a `HostMetadata=SPOS`.
-   Server hosta podle pravidla pro `SPOS` vytvoří, přiřadí mu skupinu, štítek a šablonu pro Linux a začne přijímat data.
+   Server hosta podle pravidla pro `SPOS` vytvoří, přiřadí mu skupinu, štítky a šablonu pro Linux a začne přijímat data.
+
+Nastavené parametry agenta:
+
+| Parametr | Hodnota | Význam |
+|---|---|---|
+| `Server` | `enceladus.pfsense.cz` | kdo se smí agenta ptát (pasivní kontroly) |
+| `ServerActive` | `enceladus.pfsense.cz` | kam agent sám posílá data, spouští auto-registraci |
+| `Hostname` | `rozensky-debian-aac0b2e7fa65` | jméno hosta v Zabbixu |
+| `HostMetadata` | `SPOS` | podle toho server vybere pravidlo auto-registrace |
+| `Timeout` | `30` | čekání na odpověď v sekundách |
 
 ## Ověření
 
+Uvnitř VM (`vagrant ssh`):
+
 ```bash
-vagrant ssh
 zabbix_agent2 -V                                   # zabbix_agent2 (Zabbix) 8.0.0
 systemctl status zabbix-agent2                     # active (running)
 grep -E '^(Server|ServerActive|Hostname|HostMetadata|Timeout)=' /etc/zabbix/zabbix_agent2.conf
+cat /var/lib/spos-zabbix/hostname                  # rozensky-debian-aac0b2e7fa65
 sudo tail -f /var/log/zabbix/zabbix_agent2.log
 ```
 
@@ -71,10 +86,19 @@ vagrant reload --provision
 
 ## Výsledek
 
-Host `rozensky-debian-aac0b2e7fa65` se zaregistroval, má přiřazenou skupinu, štítek a linuxovou šablonu a odesílá data.
+Host `rozensky-debian-aac0b2e7fa65` se zaregistroval, má zelenou dostupnost agenta (ZBX), štítky `class: os`,
+`OS: Linux`, `target: linux`, linuxovou šablonu (75 položek, 30 triggerů, 16 grafů) a odesílá data.
+
+Seznam hostů v Zabbixu:
 
 ![Host v Zabbixu](Images/zabbix-host.png)
-![Latest data](Images/zabbix-latest-data.png)
+
+Inventář hosta – Debian 13 (kernel 6.12.48+deb13), 75 položek, 30 triggerů:
+
+![Inventář hosta](Images/zabbix-latest-data.png)
+
+Host dashboard – skutečné souborové systémy VM (`/` 58,8 GB, `/boot` 942 MB):
+
 ![Host dashboard – souborové systémy](Images/zabbix-host-dashboard.png)
 
 ## Problémy během práce
@@ -83,9 +107,6 @@ Host `rozensky-debian-aac0b2e7fa65` se zaregistroval, má přiřazenou skupinu, 
 |---|---|---|
 | Provisioning skončil hned po instalaci agenta bez chybové hlášky | `zabbix_agent2 -V \| head -n1`: `head` po prvním řádku zavřel rouru, agent dostal SIGPIPE (kód 141) a `set -o pipefail` ukončil skript | `head -n1` nahrazeno `awk 'NR==1'`, které přečte celý výstup |
 | Configure skript volal `rpm: command not found` | při stahování se přepsal soubor verzí pro Fedoru se stejným názvem | nahrazen správným souborem, ověřeno přes `findstr` |
-| Host availability v Zabbixu ukazuje *Unknown* | pasivní kontroly (server → agent, port 10050) přes NAT neprojdou | v pořádku, monitoring běží přes aktivní kontroly |
-
-Poznámka: server `enceladus.pfsense.cz` běží na Zabbixu 7.0 (frontend 7.0.32), agent je 8.0. V aktivním režimu spolu fungují bez problémů.
 
 ## Dokumentace
 
