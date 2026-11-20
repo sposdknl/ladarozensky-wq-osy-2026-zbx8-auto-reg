@@ -1,0 +1,3 @@
+# skripty musi mit unixove konce radku, jinak bash ve VM spadne (\r)
+*.sh text eol=lf
+Vagrantfile text eol=lf
